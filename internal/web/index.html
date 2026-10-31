@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mantra MFS100 Fingerprint Manager</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+  <style>
+    :root {
+      --pico-font-size: 95%;
+      --primary: #2563eb;
+      --success: #16a34a;
+      --danger: #dc2626;
+      --warn: #d97706;
+    }
+    body { padding-bottom: 50px; background-color: #f8fafc; }
+    .header-bar {
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      color: white;
+      padding: 1.5rem;
+      border-radius: 12px;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-ok { background: #dcfce7; color: #166534; }
+    .badge-err { background: #fee2e2; color: #991b1b; }
+    .tab-nav { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 2px solid #e2e8f0; }
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 3px solid transparent;
+      padding: 0.6rem 1.2rem;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+      border-radius: 0;
+    }
+    .tab-btn.active {
+      color: #2563eb;
+      border-bottom-color: #2563eb;
+      background: #eff6ff;
+    }
+    .card {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+      margin-bottom: 1.5rem;
+    }
+    .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+    .metric-box {
+      background: #f1f5f9;
+      padding: 1rem;
+      border-radius: 8px;
+      border-left: 4px solid #2563eb;
+    }
+    .metric-title { font-size: 0.8rem; color: #64748b; text-transform: uppercase; font-weight: bold; }
+    .metric-val { font-size: 1.5rem; font-weight: bold; color: #0f172a; margin-top: 0.2rem; }
+    .scanner-preview {
+      width: 160px;
+      height: 180px;
+      border: 2px dashed #cbd5e1;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fafafa;
+      overflow: hidden;
+      margin: 0 auto 1rem;
+    }
+    .scanner-preview img { width: 100%; height: 100%; object-fit: contain; }
+    .progress-bar-wrap { background: #e2e8f0; border-radius: 9999px; height: 12px; overflow: hidden; margin-top: 0.5rem; }
+    .progress-bar-fill { height: 100%; background: #2563eb; width: 0%; transition: width 0.3s; }
+    .score-badge {
+      font-size: 2rem;
+      font-weight: 800;
+      text-align: center;
+      padding: 1rem;
+      border-radius: 8px;
+      margin: 1rem 0;
+    }
+    .score-badge.match { background: #dcfce7; color: #166534; border: 2px solid #86efac; }
+    .score-badge.fail { background: #fee2e2; color: #991b1b; border: 2px solid #fca5a5; }
+    table { width: 100%; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="container" style="max-width: 1050px; margin-top: 1.5rem;">
+    <!-- Header -->
+    <div class="header-bar">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <h2 style="margin: 0; color: white;">Mantra MFS100 Fingerprint Manager</h2>
+          <small style="color: #94a3b8;">Windows Biometric Enrolment, Verification &amp; Identification</small>
+        </div>
+        <div id="deviceStatusBadge">
+          <span class="badge badge-err">Checking Scanner...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="tab-nav">
+      <button class="tab-btn active" onclick="switchTab('dashboard')">&#128202; Dashboard</button>
+      <button class="tab-btn" onclick="switchTab('users')">&#128101; User Directory</button>
+      <button class="tab-btn" onclick="switchTab('enroll')">&#9997; Enrol Finger</button>
+      <button class="tab-btn" onclick="switchTab('verify')">&#128270; 1:1 Verify</button>
+      <button class="tab-btn" onclick="switchTab('identify')">&#128100; 1:N Identify</button>
+      <button class="tab-btn" onclick="switchTab('windows')">&#128273; Windows Sign-In</button>
+      <button class="tab-btn" onclick="switchTab('audit')">&#128220; Audit Log</button>
+    </div>
+
+    <!-- Tab 1: Dashboard -->
+    <div id="tab-dashboard" class="tab-content">
+      <div class="card">
+        <h3>Hardware &amp; System Metrics</h3>
+        <div class="metric-grid">
+          <div class="metric-box">
+            <div class="metric-title">Device Model</div>
+            <div class="metric-val" id="metricModel">-</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-title">Serial Number</div>
+            <div class="metric-val" id="metricSerial">-</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-title">SDK Version</div>
+            <div class="metric-val" id="metricSDK">-</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-title">Sensor Resolution</div>
+            <div class="metric-val" id="metricRes">-</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-title">Enrolled Users</div>
+            <div class="metric-val" id="metricUsers">0</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-title">Total Templates</div>
+            <div class="metric-val" id="metricTemplates">0</div>
+          </div>
+        </div>
+        <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
+          <button onclick="reconnectScanner()" class="secondary" style="width: auto;">&#128260; Reconnect Device</button>
+          <button onclick="quickTestScan()" style="width: auto;">&#9654; Test Scan Sensor</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Users -->
+    <div id="tab-users" class="tab-content" style="display: none;">
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h3 style="margin: 0;">Enrolled User Profiles</h3>
+          <button onclick="showCreateUserModal()" style="width: auto;">+ New User</button>
+        </div>
+        <table id="usersTable">
+          <thead>
+            <tr>
+              <th>Display Name</th>
+              <th>User ID</th>
+              <th>Enrolled Fingers</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersTbody">
+            <tr><td colspan="5">Loading users...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 3: Enrolment Wizard -->
+    <div id="tab-enroll" class="tab-content" style="display: none;">
+      <div class="card">
+        <h3>Fingerprint Enrolment</h3>
+        <p><small>Capture a finger on the MFS100 scanner to store an ISO 19794-2 template encrypted via Windows DPAPI.</small></p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+          <div>
+            <label for="enrollUserSelect">Select Target User:</label>
+            <select id="enrollUserSelect"></select>
+
+            <label for="enrollFingerSelect">Select Finger:</label>
+            <select id="enrollFingerSelect">
+              <option value="Right Thumb">Right Thumb</option>
+              <option value="Right Index" selected>Right Index</option>
+              <option value="Right Middle">Right Middle</option>
+              <option value="Right Ring">Right Ring</option>
+              <option value="Right Little">Right Little</option>
+              <option value="Left Thumb">Left Thumb</option>
+              <option value="Left Index">Left Index</option>
+              <option value="Left Middle">Left Middle</option>
+              <option value="Left Ring">Left Ring</option>
+              <option value="Left Little">Left Little</option>
+            </select>
+
+            <button id="btnStartEnrollScan" onclick="triggerEnrollScan()" style="margin-top: 1rem;">&#128070; Scan Finger on Sensor</button>
+            <div id="enrollScanMsg" style="margin-top: 0.5rem; font-weight: bold;"></div>
+          </div>
+
+          <div style="text-align: center;">
+            <div class="scanner-preview" id="enrollPreviewBox">
+              <span style="color: #94a3b8; font-size: 0.8rem;">Live Sensor Preview</span>
+            </div>
+            <div style="max-width: 200px; margin: 0 auto;">
+              <small>Capture Quality: <strong id="enrollQualityTxt">0%</strong></small>
+              <div class="progress-bar-wrap">
+                <div class="progress-bar-fill" id="enrollQualityBar"></div>
+              </div>
+            </div>
+            <button id="btnSaveEnrollment" onclick="saveEnrollment()" disabled style="margin-top: 1rem; width: auto;" class="contrast">&#128190; Save Template</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 4: 1:1 Verify -->
+    <div id="tab-verify" class="tab-content" style="display: none;">
+      <div class="card">
+        <h3>1:1 Identity Verification</h3>
+        <p><small>Claims an identity and matches scanned finger against that user's enrolled templates.</small></p>
+
+        <div style="max-width: 500px; margin: 0 auto;">
+          <label for="verifyUserSelect">Select User to Verify Against:</label>
+          <select id="verifyUserSelect"></select>
+
+          <button onclick="triggerVerifyScan()" style="margin-top: 1rem;">&#128070; Place Finger &amp; Verify</button>
+          <div id="verifyStatusMsg" style="margin-top: 0.5rem; text-align: center; font-weight: bold;"></div>
+
+          <div id="verifyResultCard" style="display: none;">
+            <div id="verifyBadge" class="score-badge"></div>
+            <div style="text-align: center;">
+              <div>Match Score: <strong id="verifyScoreTxt">0</strong> (Threshold: 1400)</div>
+              <div>Matched Finger: <strong id="verifyFingerTxt">-</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 5: 1:N Identify -->
+    <div id="tab-identify" class="tab-content" style="display: none;">
+      <div class="card">
+        <h3>1:N Fingerprint Identification</h3>
+        <p><small>Place any enrolled finger on the sensor. The system searches all enrolled templates to identify who you are.</small></p>
+
+        <div style="max-width: 500px; margin: 0 auto; text-align: center;">
+          <button onclick="triggerIdentifyScan()" style="margin-top: 1rem;">&#128070; Scan Finger to Identify Person</button>
+          <div id="identifyStatusMsg" style="margin-top: 0.5rem; font-weight: bold;"></div>
+
+          <div id="identifyResultCard" style="display: none; text-align: left; margin-top: 1.5rem;" class="card">
+            <h4 id="identifyResultTitle" style="margin-top: 0;"></h4>
+            <p id="identifyResultDetails"></p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 5.5: Windows Sign-In Setup -->
+    <div id="tab-windows" class="tab-content" style="display: none;">
+      <div class="card">
+        <h3>Windows Account Biometric Binding</h3>
+        <p><small>Bind your enrolled fingerprint profile to your local Windows user account (<code>Admin</code>) so your fingerprint can unlock your PC.</small></p>
+
+        <div style="max-width: 550px; margin: 0 auto;">
+          <label for="winUserSelect">Select Enrolled Profile:</label>
+          <select id="winUserSelect" onchange="checkWindowsBindingStatus()"></select>
+
+          <div id="winBindingStatusBox" style="margin: 1rem 0; padding: 0.8rem; border-radius: 6px; background: #f8fafc; border: 1px solid #e2e8f0;">
+            Checking binding status...
+          </div>
+
+          <label for="winAccountName">Windows Username:</label>
+          <input type="text" id="winAccountName" value="Admin" placeholder="e.g. Admin">
+
+          <label for="winDomainName">Computer Name / Domain:</label>
+          <input type="text" id="winDomainName" value="VFPCL-PC" placeholder="e.g. VFPCL-PC or .">
+
+          <label for="winPassword">Windows Account Password:</label>
+          <input type="password" id="winPassword" placeholder="Enter your Windows sign-in password">
+          <small style="color: #64748b; display: block; margin-bottom: 1rem;">
+            &#128274; Password is encrypted using Windows DPAPI (tied to your Windows user key). It is only decrypted in memory when your physical fingerprint matches.
+          </small>
+
+          <button onclick="saveWindowsBinding()" style="width: 100%;">&#128190; Bind Fingerprint to Windows Account</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 6: Audit Log -->
+    <div id="tab-audit" class="tab-content" style="display: none;">
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h3 style="margin: 0;">Security Audit Events</h3>
+          <button onclick="loadAuditLogs()" class="secondary" style="width: auto;">Refresh</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp (UTC)</th>
+              <th>Event</th>
+              <th>User</th>
+              <th>Result</th>
+              <th>Score</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="auditTbody">
+            <tr><td colspan="6">Loading audit trail...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentTab = 'dashboard';
+    let lastCapturedISO = '';
+    let lastCapturedQuality = 0;
+    let lastCapturedNFIQ = 0;
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      const activeBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(tabId));
+      if (activeBtn) activeBtn.classList.add('active');
+      const target = document.getElementById('tab-' + tabId);
+      if (target) target.style.display = 'block';
+      currentTab = tabId;
+
+      if (tabId === 'dashboard') loadScannerStatus();
+      if (tabId === 'users' || tabId === 'enroll' || tabId === 'verify' || tabId === 'windows') loadUsers();
+      if (tabId === 'windows') setTimeout(checkWindowsBindingStatus, 200);
+      if (tabId === 'audit') loadAuditLogs();
+    }
+
+    async function loadScannerStatus() {
+      try {
+        const res = await fetch('/api/scanner/status');
+        const data = await res.json();
+        const badge = document.getElementById('deviceStatusBadge');
+        if (data.connected && data.device) {
+          badge.innerHTML = '<span class="badge badge-ok">&#9679; MFS100 Connected</span>';
+          document.getElementById('metricModel').innerText = data.device.model || 'MFS100';
+          document.getElementById('metricSerial').innerText = data.device.serial || '-';
+          document.getElementById('metricSDK').innerText = 'v' + data.device.sdk_version;
+          document.getElementById('metricRes').innerText = data.device.width + ' x ' + data.device.height;
+        } else {
+          badge.innerHTML = '<span class="badge badge-err">&#9679; Disconnected</span>';
+          document.getElementById('metricModel').innerText = 'Not detected';
+          document.getElementById('metricSerial').innerText = '-';
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      loadMetrics();
+    }
+
+    async function loadMetrics() {
+      try {
+        const res = await fetch('/api/users');
+        const users = await res.json();
+        let totalTemplates = 0;
+        users.forEach(u => totalTemplates += (u.finger_count || 0));
+        document.getElementById('metricUsers').innerText = users.length;
+        document.getElementById('metricTemplates').innerText = totalTemplates;
+      } catch (e) {}
+    }
+
+    async function reconnectScanner() {
+      try {
+        const res = await fetch('/api/scanner/reconnect', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          alert('Scanner reconnected successfully!');
+          loadScannerStatus();
+        } else {
+          alert('Failed: ' + (data.error || 'Check USB connection'));
+        }
+      } catch (e) {
+        alert('Error connecting: ' + e);
+      }
+    }
+
+    async function quickTestScan() {
+      alert('Place finger on the MFS100 scanner now...');
+      try {
+        const res = await fetch('/api/scanner/capture?timeout=8&min_quality=40', { method: 'POST' });
+        const data = await res.json();
+        if (data.error) {
+          alert('Scan failed: ' + data.error);
+        } else {
+          alert('Capture successful!\nQuality: ' + data.quality + '%\nNFIQ: ' + data.nfiq);
+        }
+      } catch (e) {
+        alert('Scan request failed: ' + e);
+      }
+    }
+
+    async function loadUsers() {
+      try {
+        const res = await fetch('/api/users');
+        const users = await res.json();
+        
+        // Populate Table
+        const tbody = document.getElementById('usersTbody');
+        tbody.innerHTML = '';
+        if (users.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5">No users enrolled yet. Click "+ New User" above.</td></tr>';
+        } else {
+          users.forEach(u => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = 
+              '<td><strong>' + escapeHtml(u.display_name) + '</strong></td>' +
+              '<td><small>' + u.id + '</small></td>' +
+              '<td><span class="badge ' + (u.finger_count > 0 ? 'badge-ok' : 'badge-err') + '">' + u.finger_count + ' fingers</span></td>' +
+              '<td>' + u.status + '</td>' +
+              '<td><button class="secondary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" onclick="deleteUser(\'' + u.id + '\', \'' + escapeHtml(u.display_name) + '\')">Delete</button></td>';
+            tbody.appendChild(tr);
+          });
+        }
+
+        // Populate selects
+        const enrollSelect = document.getElementById('enrollUserSelect');
+        const verifySelect = document.getElementById('verifyUserSelect');
+        const winSelect = document.getElementById('winUserSelect');
+        enrollSelect.innerHTML = '';
+        verifySelect.innerHTML = '';
+        if (winSelect) winSelect.innerHTML = '';
+        users.forEach(u => {
+          const opt1 = new Option(u.display_name, u.id);
+          const opt2 = new Option(u.display_name + ' (' + u.finger_count + ' fingers)', u.id);
+          const opt3 = new Option(u.display_name, u.id);
+          enrollSelect.add(opt1);
+          verifySelect.add(opt2);
+          if (winSelect) winSelect.add(opt3);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function showCreateUserModal() {
+      const name = prompt('Enter Full Name for New User:');
+      if (!name || !name.trim()) return;
+      try {
+        const res = await fetch('/api/users', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ display_name: name.trim() })
+        });
+        const data = await res.json();
+        if (data.error) {
+          alert('Error: ' + data.error);
+        } else {
+          loadUsers();
+        }
+      } catch (e) {
+        alert('Request failed: ' + e);
+      }
+    }
+
+    async function deleteUser(id, name) {
+      if (!confirm('Are you sure you want to delete profile "' + name + '" and all enrolled templates?')) return;
+      try {
+        await fetch('/api/users/' + id, { method: 'DELETE' });
+        loadUsers();
+      } catch (e) {
+        alert('Delete failed: ' + e);
+      }
+    }
+
+    async function triggerEnrollScan() {
+      const msg = document.getElementById('enrollScanMsg');
+      const btn = document.getElementById('btnStartEnrollScan');
+      const saveBtn = document.getElementById('btnSaveEnrollment');
+      msg.innerText = 'Scanner active: Place and hold your finger on the sensor (scanning for 5s)...';
+      msg.style.color = '#2563eb';
+      btn.disabled = true;
+      saveBtn.disabled = true;
+
+      try {
+        const res = await fetch('/api/scanner/capture?timeout=6&min_quality=40', { method: 'POST' });
+        const data = await res.json();
+        if (data.error) {
+          msg.innerText = 'Capture error: ' + data.error;
+          msg.style.color = '#dc2626';
+        } else {
+          lastCapturedISO = data.iso_base64;
+          lastCapturedQuality = data.quality;
+          lastCapturedNFIQ = data.nfiq;
+
+          document.getElementById('enrollQualityTxt').innerText = data.quality + '%';
+          document.getElementById('enrollQualityBar').style.width = data.quality + '%';
+          msg.innerText = 'Captured successfully! Ready to save.';
+          msg.style.color = '#16a34a';
+
+          if (data.bitmap_base64) {
+            document.getElementById('enrollPreviewBox').innerHTML = '<img src="data:image/bmp;base64,' + data.bitmap_base64 + '">';
+          }
+          saveBtn.disabled = false;
+        }
+      } catch (e) {
+        msg.innerText = 'Request failed: ' + e;
+        msg.style.color = '#dc2626';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function saveEnrollment() {
+      const userID = document.getElementById('enrollUserSelect').value;
+      const finger = document.getElementById('enrollFingerSelect').value;
+      if (!userID || !lastCapturedISO) {
+        alert('Please capture a finger first.');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/enroll', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            user_id: userID,
+            finger_label: finger,
+            iso_base64: lastCapturedISO,
+            quality: lastCapturedQuality,
+            nfiq: lastCapturedNFIQ
+          })
+        });
+        const data = await res.json();
+        if (data.error) {
+          alert('Save failed: ' + data.error);
+        } else {
+          alert('Fingerprint enrolled and DPAPI-encrypted successfully!');
+          document.getElementById('btnSaveEnrollment').disabled = true;
+          document.getElementById('enrollScanMsg').innerText = 'Enrolled!';
+          loadUsers();
+        }
+      } catch (e) {
+        alert('Save failed: ' + e);
+      }
+    }
+
+    async function triggerVerifyScan() {
+      const userID = document.getElementById('verifyUserSelect').value;
+      const msg = document.getElementById('verifyStatusMsg');
+      const card = document.getElementById('verifyResultCard');
+      const badge = document.getElementById('verifyBadge');
+      card.style.display = 'none';
+
+      if (!userID) {
+        alert('Please select a user to verify.');
+        return;
+      }
+
+      msg.innerText = 'Scanner active: Place and hold your finger on the sensor (scanning for 5s)...';
+      msg.style.color = '#2563eb';
+
+      try {
+        const res = await fetch('/api/verify', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ user_id: userID })
+        });
+        const data = await res.json();
+        if (data.error) {
+          msg.innerText = 'Verification failed: ' + data.error;
+          msg.style.color = '#dc2626';
+        } else {
+          msg.innerText = '';
+          card.style.display = 'block';
+          document.getElementById('verifyScoreTxt').innerText = data.score;
+          document.getElementById('verifyFingerTxt').innerText = data.matched_finger || 'None';
+
+          if (data.matched) {
+            badge.className = 'score-badge match';
+            badge.innerHTML = '&#9989; IDENTITY VERIFIED<br><small style="font-size: 1rem;">' + escapeHtml(data.user_name) + '</small>';
+          } else {
+            badge.className = 'score-badge fail';
+            badge.innerHTML = '&#10060; NO MATCH<br><small style="font-size: 1rem;">Finger does not match enrolled templates</small>';
+          }
+        }
+      } catch (e) {
+        msg.innerText = 'Request failed: ' + e;
+        msg.style.color = '#dc2626';
+      }
+    }
+
+    async function triggerIdentifyScan() {
+      const msg = document.getElementById('identifyStatusMsg');
+      const card = document.getElementById('identifyResultCard');
+      card.style.display = 'none';
+
+      msg.innerText = 'Scanner active: Place and hold any enrolled finger on the sensor (scanning for 5s)...';
+      msg.style.color = '#2563eb';
+
+      try {
+        const res = await fetch('/api/identify', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({})
+        });
+        const data = await res.json();
+        if (data.error) {
+          msg.innerText = 'Identification error: ' + data.error;
+          msg.style.color = '#dc2626';
+        } else {
+          msg.innerText = '';
+          card.style.display = 'block';
+          if (data.identified && data.user) {
+            card.style.border = '2px solid #86efac';
+            document.getElementById('identifyResultTitle').innerHTML = '<span style="color: #166534;">&#9989; Identified: ' + escapeHtml(data.user.display_name) + '</span>';
+            document.getElementById('identifyResultDetails').innerHTML = 'Matched Finger: <strong>' + data.matched_finger + '</strong><br>Similarity Score: <strong>' + data.score + '</strong><br>User ID: <small>' + data.user.id + '</small>';
+          } else if (data.ambiguous) {
+            card.style.border = '2px solid #fcd34d';
+            document.getElementById('identifyResultTitle').innerHTML = '<span style="color: #d97706;">&#9888; Ambiguous Match</span>';
+            document.getElementById('identifyResultDetails').innerText = 'Multiple enrolled users matched with high confidence. Please use 1:1 verification instead.';
+          } else {
+            card.style.border = '2px solid #fca5a5';
+            document.getElementById('identifyResultTitle').innerHTML = '<span style="color: #991b1b;">&#10060; Unknown Person</span>';
+            document.getElementById('identifyResultDetails').innerText = 'Finger did not match any enrolled profiles in the database.';
+          }
+        }
+      } catch (e) {
+        msg.innerText = 'Request failed: ' + e;
+        msg.style.color = '#dc2626';
+      }
+    }
+
+    async function loadAuditLogs() {
+      try {
+        const res = await fetch('/api/audit?limit=50');
+        const events = await res.json();
+        const tbody = document.getElementById('auditTbody');
+        tbody.innerHTML = '';
+        if (events.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6">No audit records yet.</td></tr>';
+          return;
+        }
+        events.forEach(e => {
+          const tr = document.createElement('tr');
+          const isSuccess = e.result === 'SUCCESS';
+          tr.innerHTML = 
+            '<td><small>' + new Date(e.event_time).toLocaleString() + '</small></td>' +
+            '<td><strong>' + e.event_type + '</strong></td>' +
+            '<td>' + escapeHtml(e.user_name || e.user_id || '-') + '</td>' +
+            '<td><span class="badge ' + (isSuccess ? 'badge-ok' : 'badge-err') + '">' + e.result + '</span></td>' +
+            '<td>' + (e.diagnostic_code || 0) + '</td>' +
+            '<td><small>' + escapeHtml(e.details || '') + '</small></td>';
+          tbody.appendChild(tr);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function checkWindowsBindingStatus() {
+      const select = document.getElementById('winUserSelect');
+      const box = document.getElementById('winBindingStatusBox');
+      if (!select || !select.value) return;
+
+      try {
+        const res = await fetch('/api/windows/status?user_id=' + select.value);
+        const data = await res.json();
+        if (data.bound) {
+          box.innerHTML = '<span class="badge badge-ok">&#9989; Bound to ' + escapeHtml(data.windows_domain + '\\' + data.windows_user) + '</span><br><small style="color: #64748b;">Updated: ' + new Date(data.updated_at).toLocaleString() + '</small>';
+        } else {
+          box.innerHTML = '<span class="badge badge-err">&#9888; Not Bound Yet</span><br><small style="color: #64748b;">Enter your Windows password below to enable fingerprint unlock.</small>';
+        }
+      } catch (e) {
+        box.innerText = 'Status check failed: ' + e;
+      }
+    }
+
+    async function saveWindowsBinding() {
+      const userID = document.getElementById('winUserSelect').value;
+      const winUser = document.getElementById('winAccountName').value.trim();
+      const winDomain = document.getElementById('winDomainName').value.trim();
+      const password = document.getElementById('winPassword').value;
+
+      if (!userID || !winUser || !password) {
+        alert('Please select a profile and enter your Windows username and password.');
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/windows/bind', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            user_id: userID,
+            windows_user: winUser,
+            windows_domain: winDomain || '.',
+            password: password
+          })
+        });
+        const data = await res.json();
+        if (data.error) {
+          alert('Binding failed: ' + data.error);
+        } else {
+          alert('Success! ' + data.message);
+          document.getElementById('winPassword').value = '';
+          checkWindowsBindingStatus();
+        }
+      } catch (e) {
+        alert('Request failed: ' + e);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Initial load
+    loadScannerStatus();
+  </script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+REGEDIT4
+
+[HKEY_CLASSES_ROOT\Record\{C3D07B5C-745B-3778-9E45-C667B0EEEB04}\0.0.0.0]
+"Class"="Mantra.MFS100.CredentialProvider.CREDENTIAL_PROVIDER_USAGE_SCENARIO"
+"Assembly"="Mfs100CredentialProvider, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+"RuntimeVersion"="v4.0.30319"
+
+[HKEY_CLASSES_ROOT\Record\{8D045083-0565-3C26-8F0D-FE88E1DA63C2}\0.0.0.0]
+"Class"="Mantra.MFS100.CredentialProvider.CREDENTIAL_PROVIDER_FIELD_TYPE"
+"Assembly"="Mfs100CredentialProvider, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+"RuntimeVersion"="v4.0.30319"
+
+[HKEY_CLASSES_ROOT\Record\{FED7A141-9D01-3CC4-97D8-3EF40A4B2357}\0.0.0.0]
+"Class"="Mantra.MFS100.CredentialProvider.CREDENTIAL_PROVIDER_FIELD_STATE"
+"Assembly"="Mfs100CredentialProvider, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+"RuntimeVersion"="v4.0.30319"
+
+[HKEY_CLASSES_ROOT\Record\{00B245C0-4A6A-31A4-8D13-CF54E1593423}\0.0.0.0]
+"Class"="Mantra.MFS100.CredentialProvider.CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE"
+"Assembly"="Mfs100CredentialProvider, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+"RuntimeVersion"="v4.0.30319"
+
+[HKEY_CLASSES_ROOT\Record\{BDFCE2CE-5945-3A61-AEFC-6C7FD177AB5E}\0.0.0.0]
+"Class"="Mantra.MFS100.CredentialProvider.CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE"
+"Assembly"="Mfs100CredentialProvider, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+"RuntimeVersion"="v4.0.30319"
+
+[HKEY_CLASSES_ROOT\Record\{48ECA9FE-B4F3-3798-B592-3F57EFFB0FEA}\0.0.0.0]
+"Class"="Mantra.MFS100.CredentialProvider.CREDENTIAL_PROVIDER_STATUS_ICON"
+"Assembly"="Mfs100CredentialProvider, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+"RuntimeVersion"="v4.0.30319"
+
+[HKEY_CLASSES_ROOT\Record\{7D5DC661-C2C4-3F72-82EB-0C946856318E}\0.0.0.0]
+"Class"="Mantra.MFS100.CredentialProvider.CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR"
+"Assembly"="Mfs100CredentialProvider, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+"RuntimeVersion"="v4.0.30319"
+
+[HKEY_CLASSES_ROOT\Record\{5C46E618-4FC5-39DC-958E-B0A5193EEA31}\0.0.0.0]
+"Class"="Mantra.MFS100.CredentialProvider.CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION"
+"Assembly"="Mfs100CredentialProvider, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+"RuntimeVersion"="v4.0.30319"
+
+[HKEY_CLASSES_ROOT\Mantra.MFS100.CredentialProvider.Mfs100Provider]
+@="Mantra.MFS100.CredentialProvider.Mfs100Provider"
+
+[HKEY_CLASSES_ROOT\Mantra.MFS100.CredentialProvider.Mfs100Provider\CLSID]
+@="{7C6A8723-53BC-4545-98D1-9B5F9542D4C1}"
+
+[HKEY_CLASSES_ROOT\CLSID\{7C6A8723-53BC-4545-98D1-9B5F9542D4C1}]
+@="Mantra.MFS100.CredentialProvider.Mfs100Provider"
+
+[HKEY_CLASSES_ROOT\CLSID\{7C6A8723-53BC-4545-98D1-9B5F9542D4C1}\InprocServer32]
+@="mscoree.dll"
+"ThreadingModel"="Both"
+"Class"="Mantra.MFS100.CredentialProvider.Mfs100Provider"
+"Assembly"="Mfs100CredentialProvider, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+"RuntimeVersion"="v4.0.30319"
+
+[HKEY_CLASSES_ROOT\CLSID\{7C6A8723-53BC-4545-98D1-9B5F9542D4C1}\InprocServer32\0.0.0.0]
+"Class"="Mantra.MFS100.CredentialProvider.Mfs100Provider"
+"Assembly"="Mfs100CredentialProvider, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null"
+"RuntimeVersion"="v4.0.30319"
+
+[HKEY_CLASSES_ROOT\CLSID\{7C6A8723-53BC-4545-98D1-9B5F9542D4C1}\ProgId]
+@="Mantra.MFS100.CredentialProvider.Mfs100Provider"
+
+[HKEY_CLASSES_ROOT\CLSID\{7C6A8723-53BC-4545-98D1-9B5F9542D4C1}\Implemented Categories\{62C8FE65-4EBB-45E7-B440-6E39B2CDBF29}]

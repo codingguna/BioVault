@@ -1,0 +1,2 @@
+#define IDI_FINGERPRINT 101
+IDI_FINGERPRINT ICON "mLogon.ico"

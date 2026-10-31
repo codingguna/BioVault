@@ -1,0 +1,7 @@
+#pragma once
+#include <windows.h>
+#include <initguid.h>
+
+// {7C6A8723-53BC-4545-98D1-9B5F9542D4C1}
+DEFINE_GUID(CLSID_Mfs100Provider, 
+    0x7c6a8723, 0x53bc, 0x4545, 0x98, 0xd1, 0x9b, 0x5f, 0x95, 0x42, 0xd4, 0xc1);
