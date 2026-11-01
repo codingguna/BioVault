@@ -20,13 +20,16 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
     return TRUE;
 }
 
+static const GUID CLSID_Mfs100ProviderAlt = 
+    { 0x7b1e4398, 0x75f9, 0x4670, { 0x98, 0x31, 0xc5, 0x8d, 0xb1, 0xf2, 0x58, 0x32 } };
+
 STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv)
 {
     LogCP("DllGetClassObject called");
     if (!ppv) return E_POINTER;
     *ppv = NULL;
 
-    if (IsEqualCLSID(rclsid, CLSID_Mfs100Provider)) {
+    if (IsEqualCLSID(rclsid, CLSID_Mfs100Provider) || IsEqualCLSID(rclsid, CLSID_Mfs100ProviderAlt)) {
         CClassFactory* pFactory = new CClassFactory();
         if (!pFactory) return E_OUTOFMEMORY;
         HRESULT hr = pFactory->QueryInterface(riid, ppv);
@@ -44,7 +47,7 @@ STDAPI DllCanUnloadNow()
 }
 
 static const WCHAR c_szClsidMfs100[] = L"{7C6A8723-53BC-4545-98D1-9B5F9542D4C1}";
-static const WCHAR c_szProviderName[] = L"Mantra MFS100 Fingerprint Credential Provider";
+static const WCHAR c_szProviderName[] = L"BioVault Biometric Credential Provider";
 
 STDAPI DllRegisterServer()
 {

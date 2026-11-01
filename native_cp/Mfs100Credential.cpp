@@ -21,7 +21,7 @@ CMfs100Credential::CMfs100Credential(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, LP
         wcscpy(m_szUserSid, L"S-1-5-21-4254395636-2491016078-4039007394-1001");
     }
 
-    wcscpy(m_szStatusText, L"Press arrow to start capture");
+    wcscpy(m_szStatusText, L"Touch sensor or press [->] to unlock");
     LogCP("CMfs100Credential constructed for SID: %ls", m_szUserSid);
 }
 
@@ -146,7 +146,7 @@ HRESULT CMfs100Credential::GetStringValue(DWORD dwFieldID, LPWSTR *ppsz)
 
     switch (dwFieldID) {
     case MFS_FIELD_TITLE:
-        return SHStrDupW(L"Mantra Fingerprint", ppsz);
+        return SHStrDupW(L"BioVault™ Logon", ppsz);
 
     case MFS_FIELD_STATUS:
         return SHStrDupW(m_szStatusText, ppsz);

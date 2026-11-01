@@ -31,17 +31,21 @@ func (s *syncWriter) Write(p []byte) (n int, err error) {
 
 func main() {
 	exePath, _ := os.Executable()
-	exeDir := filepath.Dir(exePath)
-	defaultDbPath := filepath.Join(exeDir, "mfs100.db")
+	defaultDbPath := storage.DefaultDatabasePath()
 
 	dbPath := flag.String("db", defaultDbPath, "SQLite database file path")
 	useMock := flag.Bool("mock", false, "Use mock scanner")
 	flag.Parse()
 
-	// Setup immediate-flush logging to C:\ProgramData\Mfs100\service.log
-	logDir := `C:\ProgramData\Mfs100`
+	// Setup immediate-flush logging to C:\ProgramData\MantraUnlock\Logs\service.log (with fallback to C:\ProgramData\Mfs100)
+	logDir := `C:\ProgramData\MantraUnlock\Logs`
 	_ = os.MkdirAll(logDir, 0755)
 	logFile, err := os.OpenFile(filepath.Join(logDir, "service.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		legacyLogDir := `C:\ProgramData\Mfs100`
+		_ = os.MkdirAll(legacyLogDir, 0755)
+		logFile, err = os.OpenFile(filepath.Join(legacyLogDir, "service.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	}
 	if err == nil {
 		defer logFile.Close()
 		sw := &syncWriter{f: logFile}
@@ -145,6 +149,10 @@ func main() {
 			if err != nil {
 				log.Printf("[-] User %s has no Windows account bound: %v\n", idRes.User.DisplayName, err)
 				return ipc.Response{Status: "FAIL", Message: "No Windows account bound to this fingerprint"}
+			}
+			if cred.UserID != idRes.User.ID {
+				log.Printf("[+] Single account mode: Inheriting Windows account %s\\%s for user %s\n",
+					cred.WindowsDomain, cred.WindowsUser, idRes.User.DisplayName)
 			}
 
 			log.Printf("[+] Biometric authorization approved for %s\\%s!\n", cred.WindowsDomain, cred.WindowsUser)

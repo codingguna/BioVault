@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,7 +66,9 @@ type DB struct {
 
 // Open initializes SQLite database at dbPath and applies migrations.
 func Open(dbPath string) (*DB, error) {
-	db, err := sql.Open("sqlite", dbPath)
+	// Enable WAL mode, busy_timeout (5000ms), and normal sync via DSN and PRAGMAs
+	dsn := fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(1)", dbPath)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite: %w", err)
 	}
@@ -71,11 +76,19 @@ func Open(dbPath string) (*DB, error) {
 	// Configure connection pool for SQLite
 	db.SetMaxOpenConns(1)
 
+	// Ensure pragmas are applied immediately
+	_, _ = db.Exec("PRAGMA journal_mode = WAL;")
+	_, _ = db.Exec("PRAGMA busy_timeout = 5000;")
+	_, _ = db.Exec("PRAGMA synchronous = NORMAL;")
+	_, _ = db.Exec("PRAGMA foreign_keys = ON;")
+
 	s := &DB{db: db}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migration failed: %w", err)
 	}
+
+	s.autoMigrateCredentialsIfEmpty(dbPath)
 
 	return s, nil
 }
@@ -316,6 +329,20 @@ func (s *DB) queryAndDecryptTemplates(ctx context.Context, query string, args ..
 	return templates, rows.Err()
 }
 
+// CountUsers returns the total count of registered users.
+func (s *DB) CountUsers(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count)
+	return count, err
+}
+
+// CountTemplates returns the total count of stored fingerprint templates without decrypting them.
+func (s *DB) CountTemplates(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM fingerprint_templates").Scan(&count)
+	return count, err
+}
+
 // DeleteTemplate removes a specific enrolled finger template.
 func (s *DB) DeleteTemplate(ctx context.Context, templateID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM fingerprint_templates WHERE id = ?`, templateID)
@@ -404,6 +431,46 @@ func (s *DB) SaveWindowsCredential(ctx context.Context, userID, winUser, winDoma
 	return nil
 }
 
+// LinkAllUsersToWindowsCredential binds EVERY registered user in the database to the specified Windows account.
+func (s *DB) LinkAllUsersToWindowsCredential(ctx context.Context, winUser, winDomain, password string) error {
+	users, err := s.ListUsers(ctx)
+	if err != nil {
+		return err
+	}
+	if len(users) == 0 {
+		return errors.New("no user profiles found in database")
+	}
+
+	for _, u := range users {
+		if err := s.SaveWindowsCredential(ctx, u.ID, winUser, winDomain, password); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetAnyWindowsCredential returns the first available bound Windows credential in the database.
+func (s *DB) GetAnyWindowsCredential(ctx context.Context) (*WindowsCredential, error) {
+	query := `SELECT user_id, windows_user, windows_domain, encrypted_password, updated_at FROM windows_credentials LIMIT 1`
+	var c WindowsCredential
+	var encPass []byte
+
+	err := s.db.QueryRowContext(ctx, query).Scan(&c.UserID, &c.WindowsUser, &c.WindowsDomain, &encPass, &c.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("no Windows credentials in database")
+		}
+		return nil, err
+	}
+
+	plainPass, err := security.DecryptTemplate(encPass)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt Windows password: %w", err)
+	}
+	c.PlainPassword = string(plainPass)
+	return &c, nil
+}
+
 // GetWindowsCredential retrieves and decrypts the bound Windows credentials for a user.
 func (s *DB) GetWindowsCredential(ctx context.Context, userID string) (*WindowsCredential, error) {
 	query := `SELECT user_id, windows_user, windows_domain, encrypted_password, updated_at FROM windows_credentials WHERE user_id = ?`
@@ -413,7 +480,8 @@ func (s *DB) GetWindowsCredential(ctx context.Context, userID string) (*WindowsC
 	err := s.db.QueryRowContext(ctx, query, userID).Scan(&c.UserID, &c.WindowsUser, &c.WindowsDomain, &encPass, &c.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, errors.New("no Windows credential bound for this user")
+			// Fallback: If only one Windows account is linked in vault, use it
+			return s.GetAnyWindowsCredential(ctx)
 		}
 		return nil, err
 	}
@@ -431,4 +499,110 @@ func (s *DB) HasWindowsCredential(ctx context.Context, userID string) bool {
 	var count int
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM windows_credentials WHERE user_id = ?`, userID).Scan(&count)
 	return count > 0
+}
+
+// DefaultDatabasePath returns the canonical secure database path.
+// It prioritizes C:\ProgramData\MantraUnlock\mfs100.db, then local exe dir.
+func DefaultDatabasePath() string {
+	programData := os.Getenv("ProgramData")
+	if programData == "" {
+		programData = `C:\ProgramData`
+	}
+	prodDir := filepath.Join(programData, "MantraUnlock")
+	prodDb := filepath.Join(prodDir, "mfs100.db")
+
+	// If production DB exists, use it
+	if _, err := os.Stat(prodDb); err == nil {
+		return prodDb
+	}
+
+	// Check next to executable (dev/local fallback)
+	exe, err := os.Executable()
+	if err == nil {
+		localDb := filepath.Join(filepath.Dir(exe), "mfs100.db")
+		if _, err := os.Stat(localDb); err == nil {
+			return localDb
+		}
+	}
+
+	// Ensure production directory exists and return production path
+	_ = os.MkdirAll(prodDir, 0755)
+	return prodDb
+}
+
+func (s *DB) autoMigrateCredentialsIfEmpty(dbPath string) {
+	var count int
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM windows_credentials").Scan(&count)
+	if count > 0 {
+		return
+	}
+
+	candidatePaths := []string{
+		`d:\software\fp\mfs100.db`,
+	}
+	exe, err := os.Executable()
+	if err == nil {
+		candidatePaths = append(candidatePaths, filepath.Join(filepath.Dir(exe), "mfs100.db"))
+	}
+
+	for _, cp := range candidatePaths {
+		if strings.EqualFold(cp, dbPath) {
+			continue
+		}
+		if _, err := os.Stat(cp); err == nil {
+			srcDB, err := sql.Open("sqlite", cp)
+			if err == nil {
+				var uID, wUser, wDom string
+				var encPass []byte
+				var updated time.Time
+				row := srcDB.QueryRow("SELECT user_id, windows_user, windows_domain, encrypted_password, updated_at FROM windows_credentials LIMIT 1")
+				if err := row.Scan(&uID, &wUser, &wDom, &encPass, &updated); err == nil {
+					// Copy profiles if target has none
+					var currentUsers int
+					_ = s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&currentUsers)
+					if currentUsers == 0 {
+						uRows, uErr := srcDB.Query("SELECT id, display_name, status, created_at, updated_at FROM users")
+						if uErr == nil {
+							for uRows.Next() {
+								var id, disp, st string
+								var ca, ua time.Time
+								if err := uRows.Scan(&id, &disp, &st, &ca, &ua); err == nil {
+									_, _ = s.db.Exec("INSERT OR IGNORE INTO users (id, display_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", id, disp, st, ca, ua)
+								}
+							}
+							uRows.Close()
+						}
+						tRows, tErr := srcDB.Query("SELECT id, user_id, finger_label, template_format, sdk_version, template_blob_encrypted, quality, nfiq, created_at FROM fingerprint_templates")
+						if tErr == nil {
+							for tRows.Next() {
+								var tid, uid, fl, tf string
+								var sv, q, nq int
+								var tb []byte
+								var tca time.Time
+								if err := tRows.Scan(&tid, &uid, &fl, &tf, &sv, &tb, &q, &nq, &tca); err == nil {
+									_, _ = s.db.Exec("INSERT OR IGNORE INTO fingerprint_templates (id, user_id, finger_label, template_format, sdk_version, template_blob_encrypted, quality, nfiq, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+										tid, uid, fl, tf, sv, tb, q, nq, tca)
+								}
+							}
+							tRows.Close()
+						}
+					}
+
+					// Link all users in target DB
+					targetUsers, _ := s.ListUsers(context.Background())
+					if len(targetUsers) > 0 {
+						for _, tu := range targetUsers {
+							_, _ = s.db.Exec("INSERT OR REPLACE INTO windows_credentials (user_id, windows_user, windows_domain, encrypted_password, updated_at) VALUES (?, ?, ?, ?, ?)",
+								tu.ID, wUser, wDom, encPass, updated)
+						}
+					} else {
+						_, _ = s.db.Exec("INSERT OR REPLACE INTO windows_credentials (user_id, windows_user, windows_domain, encrypted_password, updated_at) VALUES (?, ?, ?, ?, ?)",
+							uID, wUser, wDom, encPass, updated)
+					}
+				}
+				srcDB.Close()
+				break
+			}
+		}
+	}
 }

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"fp-manager/internal/storage"
@@ -17,9 +16,7 @@ func main() {
 	fmt.Println("   MFS100 Windows Account Biometric Password Binding")
 	fmt.Println("==================================================")
 
-	exePath, _ := os.Executable()
-	exeDir := filepath.Dir(exePath)
-	dbPath := filepath.Join(exeDir, "mfs100.db")
+	dbPath := storage.DefaultDatabasePath()
 
 	db, err := storage.Open(dbPath)
 	if err != nil {
