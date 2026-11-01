@@ -29,7 +29,43 @@ var (
 	procReadFile           = kernel32.NewProc("ReadFile")
 	procWriteFile          = kernel32.NewProc("WriteFile")
 	procCloseHandle        = kernel32.NewProc("CloseHandle")
+
+	advapi32                                                 = syscall.NewLazyDLL("advapi32.dll")
+	procConvertStringSecurityDescriptorToSecurityDescriptorW = advapi32.NewProc("ConvertStringSecurityDescriptorToSecurityDescriptorW")
 )
+
+type securityAttributes struct {
+	nLength              uint32
+	lpSecurityDescriptor uintptr
+	bInheritHandle       int32
+}
+
+func getPipeSecurityAttributes() (*securityAttributes, uintptr) {
+	// SDDL: Allow Generic Read/Write to Everyone (WD) and Generic All to LocalSystem (SY)
+	sddl := "D:(A;;GRGW;;;WD)(A;;GA;;;SY)"
+	sddlW, err := syscall.UTF16PtrFromString(sddl)
+	if err != nil {
+		return nil, 0
+	}
+
+	var pSecDesc uintptr
+	r, _, _ := procConvertStringSecurityDescriptorToSecurityDescriptorW.Call(
+		uintptr(unsafe.Pointer(sddlW)),
+		1, // SDDL_REVISION_1
+		uintptr(unsafe.Pointer(&pSecDesc)),
+		0,
+	)
+	if r == 0 {
+		return nil, 0
+	}
+
+	sa := &securityAttributes{
+		nLength:              uint32(unsafe.Sizeof(securityAttributes{})),
+		lpSecurityDescriptor: pSecDesc,
+		bInheritHandle:       0,
+	}
+	return sa, pSecDesc
+}
 
 type Request struct {
 	Command string `json:"command"` // "TRIGGER_UNLOCK", "STATUS", "CANCEL"
@@ -64,6 +100,11 @@ func NewServer(handler PipeHandler) *Server {
 func (s *Server) Start(ctx context.Context) error {
 	go func() {
 		pipeNameW, _ := syscall.UTF16PtrFromString(PipeName)
+		sa, _ := getPipeSecurityAttributes()
+		var pSa uintptr
+		if sa != nil {
+			pSa = uintptr(unsafe.Pointer(sa))
+		}
 
 		for {
 			select {
@@ -83,7 +124,7 @@ func (s *Server) Start(ctx context.Context) error {
 				4096, // Out buffer
 				4096, // In buffer
 				5000, // Timeout ms
-				0,    // Default security descriptor (accessible to LocalSystem / Winlogon / current user)
+				pSa,  // Discretionary ACL allowing Everyone & LocalSystem
 			)
 
 			if handle == invalidHandle {

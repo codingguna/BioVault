@@ -9,8 +9,6 @@ CMfs100Credential::CMfs100Credential(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, LP
     , m_logonId(logonId)
     , m_bSelected(FALSE)
     , m_bAuthenticated(FALSE)
-    , m_hScanThread(NULL)
-    , m_bStopThread(FALSE)
 {
     InterlockedIncrement(&g_cRefDll);
     memset(m_szUser, 0, sizeof(m_szUser));
@@ -23,18 +21,12 @@ CMfs100Credential::CMfs100Credential(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, LP
         wcscpy(m_szUserSid, L"S-1-5-21-4254395636-2491016078-4039007394-1001");
     }
 
-    wcscpy(m_szStatusText, L"Touch Mantra MFS100 scanner to unlock");
+    wcscpy(m_szStatusText, L"Press arrow to start capture");
     LogCP("CMfs100Credential constructed for SID: %ls", m_szUserSid);
 }
 
 CMfs100Credential::~CMfs100Credential()
 {
-    m_bStopThread = TRUE;
-    if (m_hScanThread) {
-        WaitForSingleObject(m_hScanThread, 1000);
-        CloseHandle(m_hScanThread);
-        m_hScanThread = NULL;
-    }
     if (m_pCredEvents) {
         m_pCredEvents->Release();
         m_pCredEvents = NULL;
@@ -93,8 +85,7 @@ HRESULT CMfs100Credential::Advise(ICredentialProviderCredentialEvents *pcpce)
     if (m_pCredEvents) {
         m_pCredEvents->AddRef();
     }
-    // Automatically trigger scanner listener as soon as lock screen tile is ready
-    TriggerScan();
+    // Scanner stays completely OFF on Advise. No automatic scan.
     return S_OK;
 }
 
@@ -113,7 +104,7 @@ HRESULT CMfs100Credential::SetSelected(BOOL *pbAutoLogon)
     LogCP("Credential::SetSelected called");
     if (pbAutoLogon) *pbAutoLogon = FALSE;
     m_bSelected = TRUE;
-    TriggerScan();
+    // Scanner stays completely OFF on SetSelected. User clicks arrow [->] or presses Enter to scan.
     return S_OK;
 }
 
@@ -137,7 +128,7 @@ HRESULT CMfs100Credential::GetFieldState(DWORD dwFieldID, CREDENTIAL_PROVIDER_FI
         return S_OK;
 
     case MFS_FIELD_SUBMIT:
-        *pcpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
+        *pcpfs = CPFS_DISPLAY_IN_BOTH;
         *pcpfis = CPFIS_FOCUSED;
         return S_OK;
 
@@ -159,6 +150,9 @@ HRESULT CMfs100Credential::GetStringValue(DWORD dwFieldID, LPWSTR *ppsz)
 
     case MFS_FIELD_STATUS:
         return SHStrDupW(m_szStatusText, ppsz);
+
+    case MFS_FIELD_SUBMIT:
+        return SHStrDupW(L"Submit", ppsz);
 
     default:
         return E_INVALIDARG;
@@ -219,9 +213,6 @@ HRESULT CMfs100Credential::SetComboBoxSelectedValue(DWORD dwFieldID, DWORD dwSel
 
 HRESULT CMfs100Credential::CommandLinkClicked(DWORD dwFieldID)
 {
-    if (dwFieldID == MFS_FIELD_SUBMIT) {
-        TriggerScan();
-    }
     return S_OK;
 }
 
@@ -232,91 +223,93 @@ HRESULT CMfs100Credential::GetUserSid(LPWSTR *sid)
     return SHStrDupW(m_szUserSid, sid);
 }
 
-void CMfs100Credential::TriggerScan()
-{
-    if (m_hScanThread != NULL) {
-        DWORD exitCode = 0;
-        if (GetExitCodeThread(m_hScanThread, &exitCode) && exitCode == STILL_ACTIVE) {
-            LogCP("ScanThread already active, skipping re-trigger.");
-            return;
-        }
-        CloseHandle(m_hScanThread);
-        m_hScanThread = NULL;
-    }
-
-    m_bStopThread = FALSE;
-    m_hScanThread = CreateThread(NULL, 0, ScanThreadWorker, this, 0, NULL);
-    LogCP("Created ScanThread (Handle: %p)", m_hScanThread);
-}
-
-DWORD WINAPI CMfs100Credential::ScanThreadWorker(LPVOID lpParam)
-{
-    CMfs100Credential* pThis = (CMfs100Credential*)lpParam;
-    LogCP("ScanThread started. Querying auth pipe...");
-
-    PipeAuthResult authRes;
-    bool ok = QueryAuthPipe(&authRes, 15000);
-
-    if (pThis->m_bStopThread) {
-        LogCP("ScanThread stopped by request.");
-        return 0;
-    }
-
-    if (ok && authRes.success) {
-        LogCP("ScanThread: Biometric authentication SUCCESS for %ls\\%ls!", authRes.domain, authRes.user);
-        pThis->m_bAuthenticated = TRUE;
-        wcsncpy(pThis->m_szUser, authRes.user, 127);
-        wcsncpy(pThis->m_szDomain, authRes.domain, 127);
-        wcsncpy(pThis->m_szPassword, authRes.password, 255);
-
-        wcscpy(pThis->m_szStatusText, L"Fingerprint Verified! Unlocking...");
-        if (pThis->m_pCredEvents) {
-            pThis->m_pCredEvents->SetFieldString(pThis, MFS_FIELD_STATUS, pThis->m_szStatusText);
-        }
-        if (pThis->m_pProviderEvents) {
-            LogCP("Notifying LogonUI via ICredentialProviderEvents::CredentialsChanged...");
-            pThis->m_pProviderEvents->CredentialsChanged(pThis->m_upAdviseContext);
-        }
-    } else {
-        LogCP("ScanThread: Auth failed or timed out: %s", authRes.message);
-        if (strlen(authRes.message) > 0) {
-            MultiByteToWideChar(CP_UTF8, 0, authRes.message, -1, pThis->m_szStatusText, 255);
-        } else {
-            wcscpy(pThis->m_szStatusText, L"Scan timed out. Touch sensor again.");
-        }
-        if (pThis->m_pCredEvents) {
-            pThis->m_pCredEvents->SetFieldString(pThis, MFS_FIELD_STATUS, pThis->m_szStatusText);
-        }
-    }
-
-    return 0;
-}
-
 HRESULT CMfs100Credential::GetSerialization(
     CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE *pcpgsr,
     CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION *pcpcs,
     LPWSTR *ppszOptionalStatusText,
     CREDENTIAL_PROVIDER_STATUS_ICON *pcpsiOptionalStatusIcon)
 {
-    LogCP("Credential::GetSerialization called");
+    LogCP("Credential::GetSerialization called: User initiated scan via Submit Arrow [->] or Enter.");
     if (!pcpgsr || !pcpcs) return E_POINTER;
 
     if (ppszOptionalStatusText) *ppszOptionalStatusText = NULL;
     if (pcpsiOptionalStatusIcon) *pcpsiOptionalStatusIcon = CPSI_NONE;
 
-    if (!m_bAuthenticated) {
-        LogCP("GetSerialization: Not authenticated yet. Returning CPGSR_NO_CREDENTIAL_FINISHED.");
+    // Update status text on UI
+    wcscpy(m_szStatusText, L"Place finger on Mantra scanner...");
+    if (m_pCredEvents) {
+        m_pCredEvents->SetFieldString(this, MFS_FIELD_STATUS, m_szStatusText);
+    }
+
+    // Call background service to trigger capture and matching
+    PipeAuthResult authRes;
+    bool ok = QueryAuthPipe(&authRes, 15000);
+
+    if (!ok || !authRes.success) {
+        LogCP("GetSerialization: Biometric verification failed or timed out: %s", authRes.message);
         *pcpgsr = CPGSR_NO_CREDENTIAL_FINISHED;
+        m_bAuthenticated = FALSE;
+
+        if (strstr(authRes.message, "timed out") != NULL || strstr(authRes.message, "timeout") != NULL) {
+            wcscpy(m_szStatusText, L"Scan timed out. Press arrow to retry.");
+        } else if (strlen(authRes.message) > 0) {
+            MultiByteToWideChar(CP_UTF8, 0, authRes.message, -1, m_szStatusText, 255);
+        } else {
+            wcscpy(m_szStatusText, L"Fingerprint not recognized. Press arrow to retry.");
+        }
+
+        if (ppszOptionalStatusText) {
+            SHStrDupW(m_szStatusText, ppszOptionalStatusText);
+        }
+        if (pcpsiOptionalStatusIcon) {
+            *pcpsiOptionalStatusIcon = CPSI_ERROR;
+        }
+        if (m_pCredEvents) {
+            m_pCredEvents->SetFieldString(this, MFS_FIELD_STATUS, m_szStatusText);
+        }
         return S_OK;
     }
 
-    LogCP("GetSerialization: Building KERB_INTERACTIVE_UNLOCK_LOGON for %ls\\%ls", m_szDomain, m_szUser);
+    // Biometric match SUCCESSFUL!
+    LogCP("GetSerialization: Biometric scan SUCCESS for %ls\\%ls! Proceeding to desktop...", authRes.domain, authRes.user);
+    m_bAuthenticated = TRUE;
+    wcsncpy(m_szUser, authRes.user, 127);
+    wcsncpy(m_szDomain, authRes.domain, 127);
+    wcsncpy(m_szPassword, authRes.password, 255);
 
-    DWORD cbLogon  = sizeof(KERB_INTERACTIVE_UNLOCK_LOGON);
-    DWORD cbDomain = (DWORD)wcslen(m_szDomain) * sizeof(WCHAR);
-    DWORD cbUser   = (DWORD)wcslen(m_szUser) * sizeof(WCHAR);
-    DWORD cbPass   = (DWORD)wcslen(m_szPassword) * sizeof(WCHAR);
-    DWORD cbTotal  = cbLogon + cbDomain + cbUser + cbPass;
+    wcscpy(m_szStatusText, L"Fingerprint Verified! Unlocking...");
+    if (m_pCredEvents) {
+        m_pCredEvents->SetFieldString(this, MFS_FIELD_STATUS, m_szStatusText);
+    }
+
+    // Resolve domain for local SAM accounts
+    WCHAR szTargetDomain[128] = {0};
+    if (wcslen(m_szDomain) == 0 || wcscmp(m_szDomain, L".") == 0) {
+        DWORD dwSize = ARRAYSIZE(szTargetDomain);
+        if (!GetComputerNameW(szTargetDomain, &dwSize)) {
+            wcscpy(szTargetDomain, L".");
+        }
+    } else {
+        wcsncpy(szTargetDomain, m_szDomain, ARRAYSIZE(szTargetDomain) - 1);
+    }
+
+    LogCP("GetSerialization: Packing KERB_INTERACTIVE_UNLOCK_LOGON for user '%ls', domain '%ls'", m_szUser, szTargetDomain);
+
+    UNICODE_STRING usDomain, usUser, usPass;
+    usDomain.Length = (USHORT)(wcslen(szTargetDomain) * sizeof(WCHAR));
+    usDomain.MaximumLength = usDomain.Length;
+    usDomain.Buffer = szTargetDomain;
+
+    usUser.Length = (USHORT)(wcslen(m_szUser) * sizeof(WCHAR));
+    usUser.MaximumLength = usUser.Length;
+    usUser.Buffer = m_szUser;
+
+    usPass.Length = (USHORT)(wcslen(m_szPassword) * sizeof(WCHAR));
+    usPass.MaximumLength = usPass.Length;
+    usPass.Buffer = m_szPassword;
+
+    // Total size = struct size + string bytes
+    DWORD cbTotal = sizeof(KERB_INTERACTIVE_UNLOCK_LOGON) + usDomain.Length + usUser.Length + usPass.Length;
 
     BYTE* pBuffer = (BYTE*)CoTaskMemAlloc(cbTotal);
     if (!pBuffer) {
@@ -325,49 +318,57 @@ HRESULT CMfs100Credential::GetSerialization(
     }
     ZeroMemory(pBuffer, cbTotal);
 
-    PKERB_INTERACTIVE_UNLOCK_LOGON pLogon = (PKERB_INTERACTIVE_UNLOCK_LOGON)pBuffer;
+    PKERB_INTERACTIVE_UNLOCK_LOGON pUnlock = (PKERB_INTERACTIVE_UNLOCK_LOGON)pBuffer;
+    pUnlock->LogonId = m_logonId;
+
     if (m_cpus == CPUS_UNLOCK_WORKSTATION) {
-        pLogon->Logon.MessageType = KerbWorkstationUnlockLogon;
-        pLogon->LogonId = m_logonId;
+        pUnlock->Logon.MessageType = KerbWorkstationUnlockLogon;
     } else {
-        pLogon->Logon.MessageType = KerbInteractiveLogon;
+        pUnlock->Logon.MessageType = KerbInteractiveLogon;
     }
 
-    BYTE* pCursor = pBuffer + cbLogon;
+    // Extra space directly follows the struct
+    BYTE* pbExtra = pBuffer + sizeof(KERB_INTERACTIVE_UNLOCK_LOGON);
 
-    // Domain
-    pLogon->Logon.LogonDomainName.Length = (USHORT)cbDomain;
-    pLogon->Logon.LogonDomainName.MaximumLength = (USHORT)cbDomain;
-    pLogon->Logon.LogonDomainName.Buffer = (PWSTR)pCursor;
-    memcpy(pCursor, m_szDomain, cbDomain);
-    pCursor += cbDomain;
+    // 1. Domain (relative byte offset from pBuffer)
+    if (usDomain.Length > 0) {
+        CopyMemory(pbExtra, usDomain.Buffer, usDomain.Length);
+        pUnlock->Logon.LogonDomainName.Length = usDomain.Length;
+        pUnlock->Logon.LogonDomainName.MaximumLength = usDomain.Length;
+        pUnlock->Logon.LogonDomainName.Buffer = (PWSTR)(pbExtra - pBuffer);
+        pbExtra += usDomain.Length;
+    }
 
-    // User
-    pLogon->Logon.UserName.Length = (USHORT)cbUser;
-    pLogon->Logon.UserName.MaximumLength = (USHORT)cbUser;
-    pLogon->Logon.UserName.Buffer = (PWSTR)pCursor;
-    memcpy(pCursor, m_szUser, cbUser);
-    pCursor += cbUser;
+    // 2. User (relative byte offset from pBuffer)
+    if (usUser.Length > 0) {
+        CopyMemory(pbExtra, usUser.Buffer, usUser.Length);
+        pUnlock->Logon.UserName.Length = usUser.Length;
+        pUnlock->Logon.UserName.MaximumLength = usUser.Length;
+        pUnlock->Logon.UserName.Buffer = (PWSTR)(pbExtra - pBuffer);
+        pbExtra += usUser.Length;
+    }
 
-    // Password
-    pLogon->Logon.Password.Length = (USHORT)cbPass;
-    pLogon->Logon.Password.MaximumLength = (USHORT)cbPass;
-    pLogon->Logon.Password.Buffer = (PWSTR)pCursor;
-    memcpy(pCursor, m_szPassword, cbPass);
-    pCursor += cbPass;
+    // 3. Password (relative byte offset from pBuffer)
+    if (usPass.Length > 0) {
+        CopyMemory(pbExtra, usPass.Buffer, usPass.Length);
+        pUnlock->Logon.Password.Length = usPass.Length;
+        pUnlock->Logon.Password.MaximumLength = usPass.Length;
+        pUnlock->Logon.Password.Buffer = (PWSTR)(pbExtra - pBuffer);
+        pbExtra += usPass.Length;
+    }
 
-    // Lookup Kerberos Package ID
+    // Lookup Negotiate Auth Package (NEGOSSP_NAME_A)
     ULONG ulAuthPackage = 0;
     HANDLE hLsa = NULL;
     NTSTATUS status = LsaConnectUntrusted(&hLsa);
     if (status >= 0) {
         LSA_STRING pkgName;
-        pkgName.Buffer = (PCHAR)MICROSOFT_KERBEROS_NAME_A;
-        pkgName.Length = (USHORT)strlen(MICROSOFT_KERBEROS_NAME_A);
+        pkgName.Buffer = (PCHAR)NEGOSSP_NAME_A;
+        pkgName.Length = (USHORT)strlen(NEGOSSP_NAME_A);
         pkgName.MaximumLength = pkgName.Length + 1;
         LsaLookupAuthenticationPackage(hLsa, &pkgName, &ulAuthPackage);
         LsaDeregisterLogonProcess(hLsa);
-        LogCP("Kerberos Auth Package ID: %lu", ulAuthPackage);
+        LogCP("Negotiate Auth Package ID: %lu", ulAuthPackage);
     } else {
         LogCP("LsaConnectUntrusted failed: 0x%08X", status);
     }
@@ -379,7 +380,8 @@ HRESULT CMfs100Credential::GetSerialization(
     pcpcs->rgbSerialization = pBuffer;
 
     *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
-    LogCP("GetSerialization: Returned CPGSR_RETURN_CREDENTIAL_FINISHED successfully!");
+    LogCP("GetSerialization: Returned CPGSR_RETURN_CREDENTIAL_FINISHED (total_bytes=%lu, domain_offset=%p, user_offset=%p, pass_offset=%p)!",
+          cbTotal, pUnlock->Logon.LogonDomainName.Buffer, pUnlock->Logon.UserName.Buffer, pUnlock->Logon.Password.Buffer);
     return S_OK;
 }
 
@@ -391,7 +393,7 @@ HRESULT CMfs100Credential::ReportResult(
 {
     LogCP("Credential::ReportResult status=0x%08X, substatus=0x%08X", ntsStatus, ntsSubstatus);
     if (ntsStatus == 0) {
-        LogCP("ReportResult: Workstation unlock SUCCESS!");
+        LogCP("ReportResult: Workstation unlock SUCCESS! Entering desktop.");
     } else {
         LogCP("ReportResult: Unlock failed with status 0x%08X", ntsStatus);
     }

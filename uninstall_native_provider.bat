@@ -17,17 +17,24 @@ echo.
 set "CLSID={7C6A8723-53BC-4545-98D1-9B5F9542D4C1}"
 set "DEST_DLL=C:\Windows\System32\Mfs100CredentialProviderNative.dll"
 
-echo [1/3] Removing from Credential Providers registry...
+echo [1/4] Stopping background service and removing startup task...
+schtasks /delete /tn "MFS100AuthService" /f >nul 2>&1
+taskkill /F /IM mfs100-auth-service.exe >nul 2>&1
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "MFS100AuthService" /f >nul 2>&1
+echo [+] Startup tasks and background service removed.
+
+echo.
+echo [2/4] Removing from Credential Providers registry...
 reg delete "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\%CLSID%" /f >nul 2>&1
 echo [+] Credential Provider key removed.
 
 echo.
-echo [2/3] Removing COM CLSID registration...
+echo [3/4] Removing COM CLSID registration...
 reg delete "HKLM\SOFTWARE\Classes\CLSID\%CLSID%" /f >nul 2>&1
 echo [+] COM registration removed.
 
 echo.
-echo [3/3] Removing DLL from System32...
+echo [4/4] Removing DLL from System32...
 if exist "%DEST_DLL%" (
     del /f /q "%DEST_DLL%" >nul 2>&1
     echo [+] DLL deleted from System32.

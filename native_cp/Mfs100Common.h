@@ -1,12 +1,18 @@
 #pragma once
 #define WIN32_LEAN_AND_MEAN
+#define SECURITY_WIN32
 #include <windows.h>
 #include <credentialprovider.h>
 #include <ntsecapi.h>
+#include <sspi.h>
 #include <shlwapi.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef NEGOSSP_NAME_A
+#define NEGOSSP_NAME_A "Negotiate"
+#endif
 
 #define IDI_FINGERPRINT 101
 
@@ -31,7 +37,6 @@ inline void LogCP(const char* fmt, ...) {
     SYSTEMTIME st;
     GetLocalTime(&st);
 
-    // Ensure ProgramData\Mfs100 exists
     CreateDirectoryW(L"C:\\ProgramData\\Mfs100", NULL);
 
     FILE* f = fopen("C:\\ProgramData\\Mfs100\\native_cp.log", "a");
@@ -55,43 +60,65 @@ inline bool QueryAuthPipe(PipeAuthResult* pResult, DWORD timeoutMs) {
     memset(pResult, 0, sizeof(PipeAuthResult));
     pResult->success = false;
 
-    LogCP("QueryAuthPipe: Connecting to \\\\.\\pipe\\MFS100AuthPipe...");
-    WaitNamedPipeW(L"\\\\.\\pipe\\MFS100AuthPipe", 2000);
+    LogCP("QueryAuthPipe: Connecting to \\\\.\\pipe\\MFS100AuthPipe (timeout=%lu)...", timeoutMs);
 
-    HANDLE hPipe = CreateFileW(
-        L"\\\\.\\pipe\\MFS100AuthPipe",
-        GENERIC_READ | GENERIC_WRITE,
-        0,
-        NULL,
-        OPEN_EXISTING,
-        0,
-        NULL
-    );
+    HANDLE hPipe = INVALID_HANDLE_VALUE;
+    DWORD startWait = GetTickCount();
+
+    while (GetTickCount() - startWait < 5000) {
+        if (WaitNamedPipeW(L"\\\\.\\pipe\\MFS100AuthPipe", 500)) {
+            hPipe = CreateFileW(
+                L"\\\\.\\pipe\\MFS100AuthPipe",
+                GENERIC_READ | GENERIC_WRITE,
+                0,
+                NULL,
+                OPEN_EXISTING,
+                0,
+                NULL
+            );
+            if (hPipe != INVALID_HANDLE_VALUE) {
+                break;
+            }
+        }
+
+        static DWORD s_dwLastKick = 0;
+        if (GetTickCount() - s_dwLastKick > 10000) {
+            s_dwLastKick = GetTickCount();
+            LogCP("QueryAuthPipe: Pipe not available yet, triggering MFS100AuthService task...");
+            WinExec("schtasks /run /tn \"MFS100AuthService\"", SW_HIDE);
+        }
+        Sleep(250);
+    }
 
     if (hPipe == INVALID_HANDLE_VALUE) {
         DWORD dwErr = GetLastError();
-        LogCP("QueryAuthPipe: Failed to open pipe, error %lu", dwErr);
-        snprintf(pResult->message, sizeof(pResult->message), "Auth service not running (err %lu)", dwErr);
+        LogCP("QueryAuthPipe: Failed to open pipe after waiting, error %lu", dwErr);
+        snprintf(pResult->message, sizeof(pResult->message), "Auth service starting... Press arrow again");
         return false;
     }
 
-    LogCP("QueryAuthPipe: Connected. Sending TRIGGER_UNLOCK...");
+    DWORD dwMode = PIPE_READMODE_BYTE;
+    SetNamedPipeHandleState(hPipe, &dwMode, NULL, NULL);
+
+    LogCP("QueryAuthPipe: Connected! Sending TRIGGER_UNLOCK...");
     const char req[] = "{\"command\":\"TRIGGER_UNLOCK\"}";
     DWORD written = 0;
     if (!WriteFile(hPipe, req, (DWORD)strlen(req), &written, NULL)) {
         DWORD dwErr = GetLastError();
         LogCP("QueryAuthPipe: WriteFile failed: %lu", dwErr);
         CloseHandle(hPipe);
+        snprintf(pResult->message, sizeof(pResult->message), "Service communication failed (err %lu)", dwErr);
         return false;
     }
 
-    LogCP("QueryAuthPipe: Waiting for fingerprint response...");
+    LogCP("QueryAuthPipe: Waiting for fingerprint capture and response...");
     char buf[4096] = {0};
     DWORD bytesRead = 0;
     if (!ReadFile(hPipe, buf, sizeof(buf) - 1, &bytesRead, NULL) || bytesRead == 0) {
         DWORD dwErr = GetLastError();
         LogCP("QueryAuthPipe: ReadFile failed: %lu", dwErr);
         CloseHandle(hPipe);
+        snprintf(pResult->message, sizeof(pResult->message), "Fingerprint scan failed (err %lu)", dwErr);
         return false;
     }
     CloseHandle(hPipe);

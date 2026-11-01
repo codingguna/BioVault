@@ -138,8 +138,11 @@ func (s *Scanner) IsConnected() bool {
 func (s *Scanner) Connect(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.connectLocked(ctx)
+}
 
-	if s.initialized {
+func (s *Scanner) connectLocked(ctx context.Context) error {
+	if s.initialized && s.info != nil {
 		return nil
 	}
 
@@ -185,6 +188,9 @@ func (s *Scanner) DeviceInfo() (*scanner.DeviceInfo, error) {
 	defer s.mu.Unlock()
 
 	if !s.initialized || s.info == nil {
+		_ = s.connectLocked(context.Background())
+	}
+	if !s.initialized || s.info == nil {
 		return nil, scanner.ErrNotInitialized
 	}
 	return s.info, nil
@@ -197,8 +203,10 @@ func (s *Scanner) AutoCapture(ctx context.Context, timeoutSec int, minQuality in
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.initialized {
-		return nil, scanner.ErrNotInitialized
+	if !s.initialized || s.info == nil {
+		if err := s.connectLocked(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	if timeoutSec < 5 {

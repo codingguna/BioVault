@@ -13,8 +13,8 @@ const (
 	// DefaultVerifyThreshold is Mantra's recommended 1:1 match threshold (approx 90% confidence).
 	DefaultVerifyThreshold = 1400
 
-	// DefaultIdentifyThreshold is a slightly higher threshold for 1:N to minimize false accepts.
-	DefaultIdentifyThreshold = 1800
+	// DefaultIdentifyThreshold matches the vendor 1400 threshold for robust recognition.
+	DefaultIdentifyThreshold = 1400
 )
 
 // VerifyResult contains the outcome of a 1:1 verification attempt.
@@ -33,6 +33,8 @@ type IdentifyResult struct {
 	User          *storage.User `json:"user,omitempty"`
 	MatchedFinger string        `json:"matched_finger,omitempty"`
 	Ambiguous     bool          `json:"ambiguous"`
+	BestScore     int           `json:"best_score,omitempty"`
+	BestFinger    string        `json:"best_finger,omitempty"`
 }
 
 type Service struct {
@@ -126,13 +128,19 @@ func (s *Service) IdentifyUser(ctx context.Context, probeISO []byte) (*IdentifyR
 	}
 
 	var candidates []matchCandidate
+	highestScore := 0
+	bestFinger := ""
 
 	for _, tmpl := range allTemplates {
-		score, _, err := s.sc.MatchISO(probeISO, tmpl.DecryptedBytes)
+		score, match, err := s.sc.MatchISO(probeISO, tmpl.DecryptedBytes)
 		if err != nil {
 			continue
 		}
-		if score >= DefaultIdentifyThreshold {
+		if score > highestScore {
+			highestScore = score
+			bestFinger = tmpl.FingerLabel
+		}
+		if score >= DefaultIdentifyThreshold || match {
 			candidates = append(candidates, matchCandidate{
 				userID:      tmpl.UserID,
 				fingerLabel: tmpl.FingerLabel,
@@ -142,8 +150,13 @@ func (s *Service) IdentifyUser(ctx context.Context, probeISO []byte) (*IdentifyR
 	}
 
 	if len(candidates) == 0 {
-		_ = s.db.LogAudit(ctx, "IDENTIFY_FAILED", "", "", "FAILURE", 0, "No enrolled user matched probe template")
-		return &IdentifyResult{Identified: false}, nil
+		_ = s.db.LogAudit(ctx, "IDENTIFY_FAILED", "", "", "FAILURE", highestScore,
+			fmt.Sprintf("No template reached threshold 1400. Highest score: %d (%s)", highestScore, bestFinger))
+		return &IdentifyResult{
+			Identified: false,
+			BestScore:  highestScore,
+			BestFinger: bestFinger,
+		}, nil
 	}
 
 	// Find top candidate

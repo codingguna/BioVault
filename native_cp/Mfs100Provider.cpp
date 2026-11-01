@@ -146,12 +146,12 @@ HRESULT CMfs100Provider::GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER
 
     case MFS_FIELD_STATUS:
         pcpfd->cpft = CPFT_SMALL_TEXT;
-        SHStrDupW(L"Touch Mantra MFS100 scanner to unlock", &pcpfd->pszLabel);
+        SHStrDupW(L"Press arrow to start capture", &pcpfd->pszLabel);
         break;
 
     case MFS_FIELD_SUBMIT:
         pcpfd->cpft = CPFT_SUBMIT_BUTTON;
-        SHStrDupW(L"Unlock", &pcpfd->pszLabel);
+        SHStrDupW(L"Submit", &pcpfd->pszLabel);
         break;
     }
 

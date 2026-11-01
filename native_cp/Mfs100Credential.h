@@ -35,8 +35,6 @@ public:
     IFACEMETHODIMP GetUserSid(LPWSTR *sid);
 
     void SetProviderEvents(ICredentialProviderEvents *pEvents, UINT_PTR upContext);
-    void TriggerScan();
-    static DWORD WINAPI ScanThreadWorker(LPVOID lpParam);
 
 private:
     LONG m_cRef;
@@ -54,6 +52,4 @@ private:
     LUID m_logonId;
     BOOL m_bSelected;
     BOOL m_bAuthenticated;
-    HANDLE m_hScanThread;
-    BOOL m_bStopThread;
 };

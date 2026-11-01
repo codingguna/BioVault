@@ -5,7 +5,6 @@ echo [*] Compiling resource.rc with windres...
 ..\tools\w64devkit\bin\windres.exe -i resource.rc -o resource.o
 if %ERRORLEVEL% NEQ 0 (
     echo [-] Resource compilation failed.
-    pause
     exit /b %ERRORLEVEL%
 )
 
@@ -14,7 +13,6 @@ echo [*] Compiling Mfs100CredentialProviderNative.dll with g++ 64-bit...
 
 if %ERRORLEVEL% NEQ 0 (
     echo [-] DLL compilation failed.
-    pause
     exit /b %ERRORLEVEL%
 )
 
